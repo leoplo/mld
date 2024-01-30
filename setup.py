@@ -21,6 +21,9 @@ setup(
         'netifaces',
         'ipaddress',
     ],
+    extras_require={
+        'test': ['nemu3', 'nsenter', 'psutil'],
+    },
     packages=find_packages(),
     include_package_data=True,
     zip_safe=False,

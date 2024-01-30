@@ -17,6 +17,7 @@ The goal of this repository/module is to facilitate maintainability of this MLD 
  - Linux machine
  - Python3 (we have written all code to be compatible with at least Python v3.3)
  - pip (to install all dependencies)
+ - for tests: [nemu3](https://lab.nexedi.com/nexedi/nemu3), [bridge-utils](https://packages.debian.org/bridge-utils), [nsenter](https://pypi.org/project/nsenter), [psutil](https://pypi.org/project/psutil))
 
 
 # Installation
