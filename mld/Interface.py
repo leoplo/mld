@@ -22,6 +22,7 @@ class Interface(metaclass=ABCMeta):
         self._send_socket = send_socket
         self._recv_socket = recv_socket
         self.interface_enabled = False
+        self.lock = threading.RLock()
 
     def enable(self):
         """
@@ -30,9 +31,9 @@ class Interface(metaclass=ABCMeta):
         """
         self.interface_enabled = True
         # run receive method in background
-        receive_thread = threading.Thread(target=self.receive)
-        receive_thread.daemon = True
-        receive_thread.start()
+        self.receive_thread = threading.Thread(target=self.receive)
+        self.receive_thread.daemon = True
+        self.receive_thread.start()
 
     def receive(self):
         """
@@ -54,29 +55,28 @@ class Interface(metaclass=ABCMeta):
         """
         raise NotImplementedError
 
-    def send(self, data: bytes, group_ip: str):
+    @abstractmethod
+    def send(self, data: bytes, address: str):
         """
-        Send a control packet through this interface
-        Explicitly destined to group_ip (can be unicast or multicast IP)
+        Subclass method to be implemented
+        This method will be invoked to send a control packet through this interface
         """
-        if self.interface_enabled and data:
-            try:
-                self._send_socket.sendto(data, (group_ip, 0))
-            except socket.error:
-                pass
+        raise NotImplementedError
 
     def remove(self):
         """
         This interface is no longer active....
         Clear all state regarding it
         """
-        self.interface_enabled = False
-        try:
-            self._recv_socket.shutdown(socket.SHUT_RDWR)
-        except Exception:
-            pass
-        self._recv_socket.close()
-        self._send_socket.close()
+        with self.lock:
+            self.interface_enabled = False
+            try:
+                self._recv_socket.shutdown(socket.SHUT_RDWR)
+            except Exception:
+                pass
+            self._recv_socket.close()
+            self._send_socket.close()
+        self.receive_thread.join()
 
     def is_enabled(self):
         """

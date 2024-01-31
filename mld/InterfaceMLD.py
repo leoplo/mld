@@ -106,49 +106,56 @@ class InterfaceMLD(Interface):
         return self.ip_interface
 
     def send(self, data: bytes, address: str = "FF02::1"):
-        # send router alert option
-        cmsg_level = socket.IPPROTO_IPV6
-        cmsg_type = socket.IPV6_HOPOPTS
-        cmsg_data = b'\x3a\x00\x05\x02\x00\x00\x01\x00'
-        try:
-            self._send_socket.sendmsg([data], [(cmsg_level, cmsg_type, cmsg_data)], 0, (address, 0))
-        except OSError as e:
-            if e.errno == 101:
-              raise OSError(
-                  'No existing route to address %s for interface %s'
-                  % (address, self.interface_name)
-              ) from e
-            raise e
+        with self.lock:
+            if self.interface_enabled:
+                # send router alert option
+                cmsg_level = socket.IPPROTO_IPV6
+                cmsg_type = socket.IPV6_HOPOPTS
+                cmsg_data = b'\x3a\x00\x05\x02\x00\x00\x01\x00'
+                try:
+                    self._send_socket.sendmsg(
+                        [data], [(cmsg_level, cmsg_type, cmsg_data)], 0, (address, 0))
+                except OSError as e:
+                    if e.errno == 101:
+                        raise OSError(
+                            'No existing route to address %s for interface %s'
+                            % (address, self.interface_name)
+                        ) from e
+                    logging.error('Error occurred for interface ' + self.interface_name)
+                    raise e
 
     def _receive(self, raw_bytes, ancdata, src_addr):
-        if raw_bytes:
-            raw_bytes = raw_bytes[14:]
-            src_addr = (socket.inet_ntop(socket.AF_INET6, raw_bytes[8:24]),)
-            logging.debug("MLD IP_SRC bf= %s", src_addr)
-            dst_addr = raw_bytes[24:40]
-            (next_header,) = struct.unpack("B", raw_bytes[6:7])
-            logging.debug("NEXT HEADER:%s", next_header)
-            payload_starts_at_len = 40
-            if next_header == 0:
-                # Hop by Hop options
-                (next_header,) = struct.unpack("B", raw_bytes[40:41])
-                if next_header != 58:
-                    return
-                (hdr_ext_len,) = struct.unpack("B", raw_bytes[payload_starts_at_len +1:payload_starts_at_len + 2])
-                if hdr_ext_len > 0:
-                    payload_starts_at_len = payload_starts_at_len + 1 + hdr_ext_len*8
-                else:
-                    payload_starts_at_len = payload_starts_at_len + 8
+        with self.lock:
+            if self.interface_enabled and raw_bytes:
+                raw_bytes = raw_bytes[14:]
+                src_addr = (socket.inet_ntop(socket.AF_INET6, raw_bytes[8:24]),)
+                logging.debug("MLD IP_SRC bf= %s", src_addr)
+                dst_addr = raw_bytes[24:40]
+                (next_header,) = struct.unpack("B", raw_bytes[6:7])
+                logging.debug("NEXT HEADER:%s", next_header)
+                payload_starts_at_len = 40
+                if next_header == 0:
+                    # Hop by Hop options
+                    (next_header,) = struct.unpack("B", raw_bytes[40:41])
+                    if next_header != 58:
+                        return
+                    (hdr_ext_len,) = struct.unpack(
+                        "B", raw_bytes[payload_starts_at_len +1:payload_starts_at_len + 2])
+                    if hdr_ext_len > 0:
+                        payload_starts_at_len = payload_starts_at_len + 1 + hdr_ext_len*8
+                    else:
+                        payload_starts_at_len = payload_starts_at_len + 8
 
-            raw_bytes = raw_bytes[payload_starts_at_len:]
-            ancdata = [(socket.IPPROTO_IPV6, socket.IPV6_PKTINFO, dst_addr)]
-            logging.debug("RECEIVE MLD")
-            logging.debug("ANCDATA: %s ; SRC_ADDR: %s", ancdata, src_addr)
-            packet = ReceivedPacket(raw_bytes, ancdata, src_addr, 58, self)
-            ip_src = packet.ip_header.ip_src
-            logging.debug("MLD IP_SRC = %s", ip_src)
-            if not (ip_src == "::" or IPv6Address(ip_src).is_multicast):
-                self.PKT_FUNCTIONS.get(packet.payload.get_mld_type(), InterfaceMLD.receive_unknown_type)(self, packet)
+                raw_bytes = raw_bytes[payload_starts_at_len:]
+                ancdata = [(socket.IPPROTO_IPV6, socket.IPV6_PKTINFO, dst_addr)]
+                logging.debug("RECEIVE MLD")
+                logging.debug("ANCDATA: %s ; SRC_ADDR: %s", ancdata, src_addr)
+                packet = ReceivedPacket(raw_bytes, ancdata, src_addr, 58, self)
+                ip_src = packet.ip_header.ip_src
+                logging.debug("MLD IP_SRC = %s", ip_src)
+                if not (ip_src == "::" or IPv6Address(ip_src).is_multicast):
+                    self.PKT_FUNCTIONS.get(packet.payload.get_mld_type(),
+                                           InterfaceMLD.receive_unknown_type)(self, packet)
     """
     def _receive(self, raw_bytes, ancdata, src_addr):
         if raw_bytes:
